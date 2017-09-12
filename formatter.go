@@ -69,7 +69,7 @@ var (
 		FatalLevel: "red+h",
 		PanicLevel: "red+h",
 		DebugLevel: "black+h",
-		Tag:        "black+h",
+		Tag:        "magenta",
 		Prefix:     "cyan",
 		Timestamp:  "black+h",
 	}
@@ -189,7 +189,9 @@ func (f *Instance) Format(entry *logrus.Entry) ([]byte, error) {
 	fmt.Fprint(buf, levelColor(fmt.Sprintf("%5s", levelText)), " ")
 
 	if v, ok := entry.Data["__t"]; ok {
-		fmt.Fprint(buf, colors.Tag(fmt.Sprintf(":%v:", v)), " ")
+		fmt.Fprint(buf, colors.Tag(fmt.Sprintf("%v", v)), " ")
+	} else {
+		fmt.Fprint(buf, colors.Tag("               -"), " ")
 	}
 
 	if v, ok := entry.Data["__p"]; ok {
@@ -199,13 +201,17 @@ func (f *Instance) Format(entry *logrus.Entry) ([]byte, error) {
 	}
 
 	if v, ok := entry.Data["__f"]; ok {
-		fmt.Fprint(buf, colors.Prefix(fmt.Sprintf(".%v", v)))
+		fmt.Fprint(buf, colors.Prefix(fmt.Sprintf(":%v", v)))
 	}
 	fmt.Fprint(buf, ": ", entry.Message)
 
 	for k, v := range entry.Data {
 		if k != "__p" && k != "__f" && k != "__t" {
-			fmt.Fprintf(buf, " %s=%#v", colors.Prefix(k), v)
+			if w, ok := v.(fmt.Stringer); ok {
+				fmt.Fprintf(buf, " %s=%s", colors.Prefix(k), w.String())
+			} else {
+				fmt.Fprintf(buf, " %s=%#v", colors.Prefix(k), v)
+			}
 		}
 	}
 	buf.WriteRune('\n')
