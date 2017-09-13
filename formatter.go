@@ -13,28 +13,32 @@ import (
 	"golang.org/x/crypto/ssh/terminal"
 )
 
+const defaultTimestampFormat = time.RFC3339Nano
+
 type ColorScheme struct {
-	InfoLevel  string
-	WarnLevel  string
-	ErrorLevel string
-	FatalLevel string
-	PanicLevel string
-	DebugLevel string
-	Tag        string
-	Prefix     string
-	Timestamp  string
+	Debug  string
+	Info   string
+	Warn   string
+	Error  string
+	Fatal  string
+	Panic  string
+	Tag    string
+	Prefix string
+	Func   string
 }
 
+type colorFunc func(string) string
+
 type compiledColorScheme struct {
-	InfoLevel  func(string) string
-	WarnLevel  func(string) string
-	ErrorLevel func(string) string
-	FatalLevel func(string) string
-	PanicLevel func(string) string
-	DebugLevel func(string) string
-	Tag        func(string) string
-	Prefix     func(string) string
-	Timestamp  func(string) string
+	Debug  colorFunc
+	Info   colorFunc
+	Warn   colorFunc
+	Error  colorFunc
+	Fatal  colorFunc
+	Panic  colorFunc
+	Tag    colorFunc
+	Prefix colorFunc
+	Func   colorFunc
 }
 
 type Instance struct {
@@ -58,31 +62,33 @@ type Instance struct {
 	colorScheme *compiledColorScheme
 }
 
-const defaultTimestampFormat = time.RFC3339Nano
+func nocolor(v string) string {
+	return v
+}
 
 var (
 	baseTimestamp time.Time    = time.Now()
 	defaultColors *ColorScheme = &ColorScheme{
-		InfoLevel:  "green+h",
-		WarnLevel:  "yellow+h",
-		ErrorLevel: "red+h",
-		FatalLevel: "red+h",
-		PanicLevel: "red+h",
-		DebugLevel: "black+h",
-		Tag:        "magenta",
-		Prefix:     "cyan",
-		Timestamp:  "black+h",
+		Info:   "green+h",
+		Warn:   "yellow+h",
+		Error:  "red+h",
+		Fatal:  "red+h",
+		Panic:  "red+h",
+		Debug:  "black+h",
+		Tag:    "magenta",
+		Prefix: "cyan",
+		Func:   "cyan+h",
 	}
 	noColors *compiledColorScheme = &compiledColorScheme{
-		InfoLevel:  ansi.ColorFunc(""),
-		WarnLevel:  ansi.ColorFunc(""),
-		ErrorLevel: ansi.ColorFunc(""),
-		FatalLevel: ansi.ColorFunc(""),
-		PanicLevel: ansi.ColorFunc(""),
-		DebugLevel: ansi.ColorFunc(""),
-		Tag:        ansi.ColorFunc(""),
-		Prefix:     ansi.ColorFunc(""),
-		Timestamp:  ansi.ColorFunc(""),
+		Info:   nocolor,
+		Warn:   nocolor,
+		Error:  nocolor,
+		Fatal:  nocolor,
+		Panic:  nocolor,
+		Debug:  nocolor,
+		Tag:    nocolor,
+		Prefix: nocolor,
+		Func:   nocolor,
 	}
 	defaultCompiledColorScheme *compiledColorScheme = compileColorScheme(defaultColors)
 )
@@ -91,7 +97,7 @@ func miniTS() float64 {
 	return time.Since(baseTimestamp).Seconds()
 }
 
-func getCompiledColor(main string, fallback string) func(string) string {
+func getCompiledColor(main string, fallback string) colorFunc {
 	var style string
 	if main != "" {
 		style = main
@@ -103,15 +109,15 @@ func getCompiledColor(main string, fallback string) func(string) string {
 
 func compileColorScheme(s *ColorScheme) *compiledColorScheme {
 	return &compiledColorScheme{
-		InfoLevel:  getCompiledColor(s.InfoLevel, defaultColors.InfoLevel),
-		WarnLevel:  getCompiledColor(s.WarnLevel, defaultColors.WarnLevel),
-		ErrorLevel: getCompiledColor(s.ErrorLevel, defaultColors.ErrorLevel),
-		FatalLevel: getCompiledColor(s.FatalLevel, defaultColors.FatalLevel),
-		PanicLevel: getCompiledColor(s.PanicLevel, defaultColors.PanicLevel),
-		DebugLevel: getCompiledColor(s.DebugLevel, defaultColors.DebugLevel),
-		Tag:        getCompiledColor(s.Tag, defaultColors.Tag),
-		Prefix:     getCompiledColor(s.Prefix, defaultColors.Prefix),
-		Timestamp:  getCompiledColor(s.Timestamp, defaultColors.Timestamp),
+		Info:   getCompiledColor(s.Info, defaultColors.Info),
+		Warn:   getCompiledColor(s.Warn, defaultColors.Warn),
+		Error:  getCompiledColor(s.Error, defaultColors.Error),
+		Fatal:  getCompiledColor(s.Fatal, defaultColors.Fatal),
+		Panic:  getCompiledColor(s.Panic, defaultColors.Panic),
+		Debug:  getCompiledColor(s.Debug, defaultColors.Debug),
+		Tag:    getCompiledColor(s.Tag, defaultColors.Tag),
+		Prefix: getCompiledColor(s.Prefix, defaultColors.Prefix),
+		Func:   getCompiledColor(s.Func, defaultColors.Func),
 	}
 }
 
@@ -149,21 +155,21 @@ func (f *Instance) Format(entry *logrus.Entry) ([]byte, error) {
 	} else {
 		colors = noColors
 	}
-	var levelColor func(string) string
+	var levelColor colorFunc
 	var levelText string
 	switch entry.Level {
 	case logrus.InfoLevel:
-		levelColor = colors.InfoLevel
+		levelColor = colors.Info
 	case logrus.WarnLevel:
-		levelColor = colors.WarnLevel
+		levelColor = colors.Warn
 	case logrus.ErrorLevel:
-		levelColor = colors.ErrorLevel
+		levelColor = colors.Error
 	case logrus.FatalLevel:
-		levelColor = colors.FatalLevel
+		levelColor = colors.Fatal
 	case logrus.PanicLevel:
-		levelColor = colors.PanicLevel
+		levelColor = colors.Panic
 	default:
-		levelColor = colors.DebugLevel
+		levelColor = colors.Debug
 	}
 
 	if entry.Level != logrus.WarnLevel {
@@ -183,16 +189,18 @@ func (f *Instance) Format(entry *logrus.Entry) ([]byte, error) {
 		} else {
 			ts = entry.Time.Format(timestampFormat)
 		}
-		fmt.Fprint(buf, colors.Timestamp(ts), " ")
+		fmt.Fprint(buf, levelColor(ts), " ")
 	}
 
 	fmt.Fprint(buf, levelColor(fmt.Sprintf("%5s", levelText)), " ")
 
+	tv := "-"
 	if v, ok := entry.Data["__t"]; ok {
-		fmt.Fprint(buf, colors.Tag(fmt.Sprintf("%v", v)), " ")
-	} else {
-		fmt.Fprint(buf, colors.Tag("               -"), " ")
+		if tv, ok = v.(string); !ok {
+			tv = fmt.Sprintf("%#v", v)
+		}
 	}
+	fmt.Fprint(buf, colors.Tag(fmt.Sprintf("% 16s", tv)), " ")
 
 	if v, ok := entry.Data["__p"]; ok {
 		fmt.Fprint(buf, colors.Prefix(fmt.Sprintf("%v", v)))
@@ -201,19 +209,31 @@ func (f *Instance) Format(entry *logrus.Entry) ([]byte, error) {
 	}
 
 	if v, ok := entry.Data["__f"]; ok {
-		fmt.Fprint(buf, colors.Prefix(fmt.Sprintf(":%v", v)))
+		fmt.Fprint(buf, " ", colors.Func(fmt.Sprintf("%v", v)))
 	}
-	fmt.Fprint(buf, ": ", entry.Message)
+	fmt.Fprint(buf, " ", levelColor(entry.Message), "\t")
+
+	if v, ok := entry.Data[logrus.ErrorKey]; ok {
+		printField(buf, logrus.ErrorKey, v, colors.Prefix, colors.Error)
+	}
 
 	for k, v := range entry.Data {
-		if k != "__p" && k != "__f" && k != "__t" {
-			if w, ok := v.(fmt.Stringer); ok {
-				fmt.Fprintf(buf, " %s=%s", colors.Prefix(k), w.String())
-			} else {
-				fmt.Fprintf(buf, " %s=%#v", colors.Prefix(k), v)
-			}
+		if k == "__p" || k == "__f" || k == "__t" || k == logrus.ErrorKey {
+			continue
 		}
+		printField(buf, k, v, colors.Prefix, nocolor)
 	}
 	buf.WriteRune('\n')
 	return buf.Bytes(), nil
+}
+
+func printField(buf *bytes.Buffer, k string, v interface{}, kcolor, vcolor colorFunc) {
+	switch w := v.(type) {
+	case fmt.Stringer:
+		fmt.Fprintf(buf, " %s=%s", kcolor(k), vcolor(w.String()))
+	case error:
+		fmt.Fprintf(buf, " %s=%s", kcolor(k), vcolor(fmt.Sprintf("%q", w.Error())))
+	default:
+		fmt.Fprintf(buf, " %s=%s", kcolor(k), vcolor(fmt.Sprintf("%#v", v)))
+	}
 }
