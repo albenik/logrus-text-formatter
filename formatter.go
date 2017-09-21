@@ -5,8 +5,11 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"sort"
 	"strings"
 	"time"
+	"unicode"
+	"unicode/utf8"
 
 	"github.com/mgutz/ansi"
 	"github.com/sirupsen/logrus"
@@ -69,23 +72,23 @@ func nocolor(v string) string {
 var (
 	baseTimestamp time.Time    = time.Now()
 	defaultColors *ColorScheme = &ColorScheme{
-		Info:   "green+h",
+		Debug:  "black+h",
+		Info:   "white",
 		Warn:   "yellow+h",
 		Error:  "red+h",
 		Fatal:  "red+h",
 		Panic:  "red+h",
-		Debug:  "black+h",
 		Tag:    "magenta",
 		Prefix: "cyan",
 		Func:   "cyan+h",
 	}
 	noColors *compiledColorScheme = &compiledColorScheme{
+		Debug:  nocolor,
 		Info:   nocolor,
 		Warn:   nocolor,
 		Error:  nocolor,
 		Fatal:  nocolor,
 		Panic:  nocolor,
-		Debug:  nocolor,
 		Tag:    nocolor,
 		Prefix: nocolor,
 		Func:   nocolor,
@@ -203,7 +206,12 @@ func (f *Instance) Format(entry *logrus.Entry) ([]byte, error) {
 	fmt.Fprint(buf, colors.Tag(fmt.Sprintf("% 16s", tv)), " ")
 
 	if v, ok := entry.Data["__p"]; ok {
-		fmt.Fprint(buf, colors.Prefix(fmt.Sprintf("%v", v)))
+		switch v.(type) {
+		case string, fmt.Stringer:
+			fmt.Fprint(buf, colors.Prefix(fmt.Sprintf("%s", v)))
+		default:
+			fmt.Fprint(buf, colors.Prefix(fmt.Sprintf("%T", v)))
+		}
 	} else {
 		fmt.Fprint(buf, colors.Prefix("__p<missing>"))
 	}
@@ -211,17 +219,24 @@ func (f *Instance) Format(entry *logrus.Entry) ([]byte, error) {
 	if v, ok := entry.Data["__f"]; ok {
 		fmt.Fprint(buf, " ", colors.Func(fmt.Sprintf("%v", v)))
 	}
-	fmt.Fprint(buf, " ", levelColor(entry.Message), "\t")
+	fmt.Fprint(buf, "\t", levelColor(entry.Message), "\t")
 
 	if v, ok := entry.Data[logrus.ErrorKey]; ok {
-		printField(buf, logrus.ErrorKey, v, colors.Prefix, colors.Error)
+		printField(buf, logrus.ErrorKey, v, colors.Prefix, levelColor)
 	}
 
-	for k, v := range entry.Data {
+	keys := make([]string, 0, len(entry.Data))
+	for k := range entry.Data {
+		keys = append(keys, k)
+	}
+	sort.Strings(keys)
+
+	for _, k := range keys {
 		if k == "__p" || k == "__f" || k == "__t" || k == logrus.ErrorKey {
 			continue
 		}
-		printField(buf, k, v, colors.Prefix, nocolor)
+		v := entry.Data[k]
+		printField(buf, k, v, colors.Prefix, levelColor)
 	}
 	buf.WriteRune('\n')
 	return buf.Bytes(), nil
@@ -232,7 +247,9 @@ func printField(buf *bytes.Buffer, k string, v interface{}, kcolor, vcolor color
 	case fmt.Stringer:
 		fmt.Fprintf(buf, " %s=%s", kcolor(k), vcolor(w.String()))
 	case error:
-		fmt.Fprintf(buf, " %s=%s", kcolor(k), vcolor(fmt.Sprintf("%q", w.Error())))
+		s := w.Error()
+		r, n := utf8.DecodeRuneInString(s)
+		fmt.Fprintf(buf, " %s=%s", kcolor(k), vcolor(fmt.Sprintf("%q", string(unicode.ToUpper(r))+s[n:]+"!")))
 	default:
 		fmt.Fprintf(buf, " %s=%s", kcolor(k), vcolor(fmt.Sprintf("%#v", v)))
 	}
