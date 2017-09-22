@@ -7,6 +7,7 @@ import (
 	"os"
 	"sort"
 	"strings"
+	"sync"
 	"time"
 	"unicode"
 	"unicode/utf8"
@@ -62,7 +63,13 @@ type Instance struct {
 	// Timestamp format to use for display when a full timestamp is printed.
 	TimestampFormat string
 
+	PrefixFieldName string
+	TagFieldName    string
+	FuncFieldName   string
+
 	colorScheme *compiledColorScheme
+
+	sync.Once
 }
 
 func nocolor(v string) string {
@@ -138,6 +145,29 @@ func (f *Instance) SetColorScheme(colorScheme *ColorScheme) {
 }
 
 func (f *Instance) Format(entry *logrus.Entry) ([]byte, error) {
+	// init
+	f.Once.Do(func() {
+		if len(f.PrefixFieldName) == 0 {
+			f.PrefixFieldName = "__p"
+		}
+		if len(f.TagFieldName) == 0 {
+			f.TagFieldName = "__t"
+		}
+		if len(f.FuncFieldName) == 0 {
+			f.FuncFieldName = "__f"
+		}
+		if len(f.TimestampFormat) == 0 {
+			f.TimestampFormat = defaultTimestampFormat
+		}
+		if f.colorScheme == nil {
+			if f.UseColors {
+				f.colorScheme = defaultCompiledColorScheme
+			} else {
+				f.colorScheme = noColors
+			}
+		}
+	})
+
 	var buf *bytes.Buffer
 	if entry.Buffer != nil {
 		buf = entry.Buffer
@@ -145,34 +175,21 @@ func (f *Instance) Format(entry *logrus.Entry) ([]byte, error) {
 		buf = &bytes.Buffer{}
 	}
 
-	timestampFormat := f.TimestampFormat
-	if timestampFormat == "" {
-		timestampFormat = defaultTimestampFormat
-	}
-	var colors *compiledColorScheme
-	if f.UseColors {
-		if f.colorScheme == nil {
-			f.colorScheme = defaultCompiledColorScheme
-		}
-		colors = f.colorScheme
-	} else {
-		colors = noColors
-	}
 	var levelColor colorFunc
 	var levelText string
 	switch entry.Level {
 	case logrus.InfoLevel:
-		levelColor = colors.Info
+		levelColor = f.colorScheme.Info
 	case logrus.WarnLevel:
-		levelColor = colors.Warn
+		levelColor = f.colorScheme.Warn
 	case logrus.ErrorLevel:
-		levelColor = colors.Error
+		levelColor = f.colorScheme.Error
 	case logrus.FatalLevel:
-		levelColor = colors.Fatal
+		levelColor = f.colorScheme.Fatal
 	case logrus.PanicLevel:
-		levelColor = colors.Panic
+		levelColor = f.colorScheme.Panic
 	default:
-		levelColor = colors.Debug
+		levelColor = f.colorScheme.Debug
 	}
 
 	if entry.Level != logrus.WarnLevel {
@@ -190,7 +207,7 @@ func (f *Instance) Format(entry *logrus.Entry) ([]byte, error) {
 		if !f.FullTimestamp {
 			ts = fmt.Sprintf("[%f]", miniTS())
 		} else {
-			ts = entry.Time.Format(timestampFormat)
+			ts = entry.Time.Format(f.TimestampFormat)
 		}
 		fmt.Fprint(buf, levelColor(ts), " ")
 	}
@@ -198,31 +215,31 @@ func (f *Instance) Format(entry *logrus.Entry) ([]byte, error) {
 	fmt.Fprint(buf, levelColor(fmt.Sprintf("%5s", levelText)), " ")
 
 	tv := "-"
-	if v, ok := entry.Data["__t"]; ok {
+	if v, ok := entry.Data[f.TagFieldName]; ok {
 		if tv, ok = v.(string); !ok {
 			tv = fmt.Sprintf("%#v", v)
 		}
 	}
-	fmt.Fprint(buf, colors.Tag(fmt.Sprintf("% 16s", tv)), " ")
+	fmt.Fprint(buf, f.colorScheme.Tag(fmt.Sprintf("% 16s", tv)), " ")
 
-	if v, ok := entry.Data["__p"]; ok {
+	if v, ok := entry.Data[f.PrefixFieldName]; ok {
 		switch v.(type) {
 		case string, fmt.Stringer:
-			fmt.Fprint(buf, colors.Prefix(fmt.Sprintf("%s", v)))
+			fmt.Fprint(buf, f.colorScheme.Prefix(fmt.Sprintf("%s", v)))
 		default:
-			fmt.Fprint(buf, colors.Prefix(fmt.Sprintf("%T", v)))
+			fmt.Fprint(buf, f.colorScheme.Prefix(fmt.Sprintf("%T", v)))
 		}
 	} else {
-		fmt.Fprint(buf, colors.Prefix("__p<missing>"))
+		fmt.Fprint(buf, f.colorScheme.Prefix(f.PrefixFieldName+"<missing>"))
 	}
 
-	if v, ok := entry.Data["__f"]; ok {
-		fmt.Fprint(buf, " ", colors.Func(fmt.Sprintf("%v", v)))
+	if v, ok := entry.Data[f.FuncFieldName]; ok {
+		fmt.Fprint(buf, " ", f.colorScheme.Func(fmt.Sprintf("%v", v)))
 	}
 	fmt.Fprint(buf, "\t", levelColor(entry.Message), "\t")
 
 	if v, ok := entry.Data[logrus.ErrorKey]; ok {
-		printField(buf, logrus.ErrorKey, v, colors.Prefix, levelColor)
+		printField(buf, logrus.ErrorKey, v, f.colorScheme.Prefix, levelColor)
 	}
 
 	keys := make([]string, 0, len(entry.Data))
@@ -232,11 +249,11 @@ func (f *Instance) Format(entry *logrus.Entry) ([]byte, error) {
 	sort.Strings(keys)
 
 	for _, k := range keys {
-		if k == "__p" || k == "__f" || k == "__t" || k == logrus.ErrorKey {
+		if k == f.PrefixFieldName || k == f.TagFieldName || k == f.FuncFieldName || k == logrus.ErrorKey {
 			continue
 		}
 		v := entry.Data[k]
-		printField(buf, k, v, colors.Prefix, levelColor)
+		printField(buf, k, v, f.colorScheme.Prefix, levelColor)
 	}
 	buf.WriteRune('\n')
 	return buf.Bytes(), nil
