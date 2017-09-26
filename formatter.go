@@ -3,18 +3,15 @@ package textformatter
 import (
 	"bytes"
 	"fmt"
+	"github.com/mgutz/ansi"
+	"github.com/sirupsen/logrus"
+	"golang.org/x/crypto/ssh/terminal"
 	"io"
 	"os"
 	"sort"
 	"strings"
 	"sync"
 	"time"
-	"unicode"
-	"unicode/utf8"
-
-	"github.com/mgutz/ansi"
-	"github.com/sirupsen/logrus"
-	"golang.org/x/crypto/ssh/terminal"
 )
 
 const defaultTimestampFormat = time.RFC3339Nano
@@ -63,9 +60,11 @@ type Instance struct {
 	// Timestamp format to use for display when a full timestamp is printed.
 	TimestampFormat string
 
-	PrefixFieldName string
-	TagFieldName    string
-	FuncFieldName   string
+	PrefixFieldName  string
+	PrefixFieldWidth int
+	FuncFieldName    string
+	TagFieldName     string
+	TagFieldWidth    int
 
 	colorScheme *compiledColorScheme
 
@@ -212,62 +211,96 @@ func (f *Instance) Format(entry *logrus.Entry) ([]byte, error) {
 		fmt.Fprint(buf, levelColor(ts), " ")
 	}
 
-	fmt.Fprint(buf, levelColor(fmt.Sprintf("%5s", levelText)), " ")
+	fmt.Fprint(buf, levelColor(fmt.Sprintf("%5s", levelText)))
 
-	tv := "-"
-	if v, ok := entry.Data[f.TagFieldName]; ok {
-		if tv, ok = v.(string); !ok {
-			tv = fmt.Sprintf("%#v", v)
-		}
-	}
-	fmt.Fprint(buf, f.colorScheme.Tag(fmt.Sprintf("% 16s", tv)), " ")
+	var fstr string
+	var flen int
 
-	if v, ok := entry.Data[f.PrefixFieldName]; ok {
-		switch v.(type) {
-		case string, fmt.Stringer:
-			fmt.Fprint(buf, f.colorScheme.Prefix(fmt.Sprintf("%s", v)))
+	// Tag
+	if tf, ok := entry.Data[f.TagFieldName]; ok {
+		switch t := tf.(type) {
+		case fmt.Stringer:
+			fstr = t.String()
 		default:
-			fmt.Fprint(buf, f.colorScheme.Prefix(fmt.Sprintf("%T", v)))
+			fstr = fmt.Sprintf("%#v", t)
 		}
 	} else {
-		fmt.Fprint(buf, f.colorScheme.Prefix(f.PrefixFieldName+"<missing>"))
+		fstr = "-"
+	}
+	fmt.Fprint(buf, " ", f.colorScheme.Tag(fmt.Sprintf("%s", fstr)))
+	flen = len(fstr)
+
+	if flen < f.TagFieldWidth {
+		fmt.Fprint(buf, strings.Repeat(" ", int(f.TagFieldWidth-flen)+1))
+	} else {
+		fmt.Fprint(buf, " ")
 	}
 
+	// Prefix
+	if v, ok := entry.Data[f.PrefixFieldName]; ok {
+		fstr = fmt.Sprintf("%v", v)
+	} else {
+		fstr = f.PrefixFieldName + "<missing>"
+	}
+	fmt.Fprint(buf, f.colorScheme.Prefix(fstr))
+	flen = len(fstr)
+
+	// Func
 	if v, ok := entry.Data[f.FuncFieldName]; ok {
-		fmt.Fprint(buf, " ", f.colorScheme.Func(fmt.Sprintf("%v", v)))
+		fstr = fmt.Sprintf("%v", v)
+		fmt.Fprint(buf, ".", f.colorScheme.Func(fstr))
+		flen += len(fstr) + 1
 	}
-	fmt.Fprint(buf, "\t", levelColor(entry.Message), "\t")
 
+	if flen < f.PrefixFieldWidth {
+		fmt.Fprint(buf, strings.Repeat(" ", int(f.PrefixFieldWidth-flen)+1))
+	} else {
+		fmt.Fprint(buf, " ")
+	}
+
+	// Message
+	fmt.Fprint(buf, " ", levelColor(entry.Message))
+
+	var errpresent bool
 	if v, ok := entry.Data[logrus.ErrorKey]; ok {
-		printField(buf, logrus.ErrorKey, v, f.colorScheme.Prefix, levelColor)
+		errpresent = true
+		printField(buf, logrus.ErrorKey, v, f.colorScheme.Prefix, levelColor, true)
 	}
 
 	keys := make([]string, 0, len(entry.Data))
 	for k := range entry.Data {
-		keys = append(keys, k)
+		switch k {
+		case f.PrefixFieldName, f.TagFieldName, f.FuncFieldName, logrus.ErrorKey:
+			continue
+		default:
+			keys = append(keys, k)
+		}
 	}
 	sort.Strings(keys)
 
-	for _, k := range keys {
-		if k == f.PrefixFieldName || k == f.TagFieldName || k == f.FuncFieldName || k == logrus.ErrorKey {
-			continue
-		}
+	for n, k := range keys {
 		v := entry.Data[k]
-		printField(buf, k, v, f.colorScheme.Prefix, levelColor)
+		printField(buf, k, v, f.colorScheme.Prefix, levelColor, n == 0 && !errpresent)
+	}
+	if errpresent || len(keys) > 0 {
+		fmt.Fprint(buf, ")")
 	}
 	buf.WriteRune('\n')
 	return buf.Bytes(), nil
 }
 
-func printField(buf *bytes.Buffer, k string, v interface{}, kcolor, vcolor colorFunc) {
+func printField(buf *bytes.Buffer, k string, v interface{}, kcolor, vcolor colorFunc, first bool) {
+	if first {
+		fmt.Fprint(buf, " (")
+	} else {
+		fmt.Fprint(buf, " ")
+	}
 	switch w := v.(type) {
 	case fmt.Stringer:
-		fmt.Fprintf(buf, " %s=%s", kcolor(k), vcolor(w.String()))
+		fmt.Fprintf(buf, "%s=%s", kcolor(k), vcolor(w.String()))
 	case error:
-		s := w.Error()
-		r, n := utf8.DecodeRuneInString(s)
-		fmt.Fprintf(buf, " %s=%s", kcolor(k), vcolor(fmt.Sprintf("%q", string(unicode.ToUpper(r))+s[n:]+"!")))
+		fmt.Fprintf(buf, "%s={%s}", kcolor(k), vcolor(w.Error()))
 	default:
-		fmt.Fprintf(buf, " %s=%s", kcolor(k), vcolor(fmt.Sprintf("%#v", v)))
+		fmt.Fprintf(buf, "%s=%s", kcolor(k), vcolor(fmt.Sprintf("%#v", v)))
 	}
 }
