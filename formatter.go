@@ -3,15 +3,16 @@ package textformatter
 import (
 	"bytes"
 	"fmt"
-	"github.com/mgutz/ansi"
-	"github.com/sirupsen/logrus"
-	"golang.org/x/crypto/ssh/terminal"
 	"io"
 	"os"
 	"sort"
 	"strings"
 	"sync"
 	"time"
+
+	"github.com/mgutz/ansi"
+	"github.com/sirupsen/logrus"
+	"golang.org/x/crypto/ssh/terminal"
 )
 
 const defaultTimestampFormat = time.RFC3339Nano
@@ -285,22 +286,23 @@ func (f *Instance) Format(entry *logrus.Entry) ([]byte, error) {
 	if errpresent || len(keys) > 0 {
 		fmt.Fprint(buf, ")")
 	}
-	buf.WriteRune('\n')
+	fmt.Fprint(buf, "\n")
+
 	return buf.Bytes(), nil
 }
 
-func printField(buf *bytes.Buffer, k string, v interface{}, kcolor, vcolor colorFunc, first bool) {
+func printField(w io.Writer, key string, val interface{}, kcolor, vcolor colorFunc, first bool) {
 	if first {
-		fmt.Fprint(buf, " (")
+		fmt.Fprint(w, " (")
 	} else {
-		fmt.Fprint(buf, " ")
+		fmt.Fprint(w, " ")
 	}
-	switch w := v.(type) {
+	switch v := val.(type) {
 	case fmt.Stringer:
-		fmt.Fprintf(buf, "%s=%s", kcolor(k), vcolor(w.String()))
+		fmt.Fprintf(w, "%s=%s", kcolor(key), vcolor(v.String()))
 	case error:
-		fmt.Fprintf(buf, "%s={%s}", kcolor(k), vcolor(w.Error()))
+		fmt.Fprintf(w, "%s={%s}", kcolor(key), vcolor(v.Error()))
 	default:
-		fmt.Fprintf(buf, "%s=%s", kcolor(k), vcolor(fmt.Sprintf("%#v", v)))
+		fmt.Fprintf(w, "%s=%s", kcolor(key), vcolor(fmt.Sprintf("%#v", v)))
 	}
 }
