@@ -24,7 +24,6 @@ type ColorScheme struct {
 	Error  string
 	Fatal  string
 	Panic  string
-	Tag    string
 	Prefix string
 	Func   string
 }
@@ -38,7 +37,6 @@ type compiledColorScheme struct {
 	Error  colorFunc
 	Fatal  colorFunc
 	Panic  colorFunc
-	Tag    colorFunc
 	Prefix colorFunc
 	Func   colorFunc
 }
@@ -80,14 +78,13 @@ var (
 	baseTimestamp time.Time    = time.Now()
 	defaultColors *ColorScheme = &ColorScheme{
 		Debug:  "black+h",
-		Info:   "white",
+		Info:   "white+h",
 		Warn:   "yellow+h",
 		Error:  "red+h",
 		Fatal:  "red+h",
 		Panic:  "red+h",
-		Tag:    "magenta",
 		Prefix: "cyan",
-		Func:   "cyan+h",
+		Func:   "white",
 	}
 	noColors *compiledColorScheme = &compiledColorScheme{
 		Debug:  nocolor,
@@ -96,7 +93,6 @@ var (
 		Error:  nocolor,
 		Fatal:  nocolor,
 		Panic:  nocolor,
-		Tag:    nocolor,
 		Prefix: nocolor,
 		Func:   nocolor,
 	}
@@ -125,7 +121,6 @@ func compileColorScheme(s *ColorScheme) *compiledColorScheme {
 		Fatal:  getCompiledColor(s.Fatal, defaultColors.Fatal),
 		Panic:  getCompiledColor(s.Panic, defaultColors.Panic),
 		Debug:  getCompiledColor(s.Debug, defaultColors.Debug),
-		Tag:    getCompiledColor(s.Tag, defaultColors.Tag),
 		Prefix: getCompiledColor(s.Prefix, defaultColors.Prefix),
 		Func:   getCompiledColor(s.Func, defaultColors.Func),
 	}
@@ -228,7 +223,7 @@ func (f *Instance) Format(entry *logrus.Entry) ([]byte, error) {
 	} else {
 		fstr = "-"
 	}
-	fmt.Fprint(buf, " ", f.colorScheme.Tag(fmt.Sprintf("%s", fstr)))
+	fmt.Fprint(buf, " ", levelColor(fmt.Sprintf("%s", fstr)))
 	flen = len(fstr)
 
 	if flen < f.TagFieldWidth {
@@ -249,10 +244,12 @@ func (f *Instance) Format(entry *logrus.Entry) ([]byte, error) {
 	// Func
 	if v, ok := entry.Data[f.FuncFieldName]; ok {
 		fstr = fmt.Sprintf("%v", v)
-		fmt.Fprint(buf, ".", f.colorScheme.Func(fstr))
-		flen += len(fstr) + 1
+	} else {
+		fstr = "-"
 	}
+	fmt.Fprint(buf, " ", f.colorScheme.Func(fstr))
 
+	flen += len(fstr) + 1
 	if flen < f.PrefixFieldWidth {
 		fmt.Fprint(buf, strings.Repeat(" ", int(f.PrefixFieldWidth-flen)+1))
 	} else {
