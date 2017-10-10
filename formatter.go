@@ -62,8 +62,6 @@ type Instance struct {
 	PrefixFieldName  string
 	PrefixFieldWidth int
 	FuncFieldName    string
-	TagFieldName     string
-	TagFieldWidth    int
 
 	colorScheme *compiledColorScheme
 
@@ -78,9 +76,9 @@ var (
 	baseTimestamp time.Time    = time.Now()
 	defaultColors *ColorScheme = &ColorScheme{
 		Debug:  "black+h",
-		Info:   "white+h",
-		Warn:   "yellow+h",
-		Error:  "red+h",
+		Info:   "green",
+		Warn:   "yellow",
+		Error:  "red",
 		Fatal:  "red+h",
 		Panic:  "red+h",
 		Prefix: "cyan",
@@ -145,9 +143,6 @@ func (f *Instance) Format(entry *logrus.Entry) ([]byte, error) {
 		if len(f.PrefixFieldName) == 0 {
 			f.PrefixFieldName = "__p"
 		}
-		if len(f.TagFieldName) == 0 {
-			f.TagFieldName = "__t"
-		}
 		if len(f.FuncFieldName) == 0 {
 			f.FuncFieldName = "__f"
 		}
@@ -210,27 +205,6 @@ func (f *Instance) Format(entry *logrus.Entry) ([]byte, error) {
 	fmt.Fprint(buf, levelColor(fmt.Sprintf("%5s", levelText)))
 
 	var fstr string
-	var flen int
-
-	// Tag
-	if tf, ok := entry.Data[f.TagFieldName]; ok {
-		switch t := tf.(type) {
-		case fmt.Stringer:
-			fstr = t.String()
-		default:
-			fstr = fmt.Sprintf("%#v", t)
-		}
-	} else {
-		fstr = "-"
-	}
-	fmt.Fprint(buf, " ", levelColor(fmt.Sprintf("%s", fstr)))
-	flen = len(fstr)
-
-	if flen < f.TagFieldWidth {
-		fmt.Fprint(buf, strings.Repeat(" ", int(f.TagFieldWidth-flen)+1))
-	} else {
-		fmt.Fprint(buf, " ")
-	}
 
 	// Prefix
 	if v, ok := entry.Data[f.PrefixFieldName]; ok {
@@ -238,22 +212,19 @@ func (f *Instance) Format(entry *logrus.Entry) ([]byte, error) {
 	} else {
 		fstr = f.PrefixFieldName + "<missing>"
 	}
-	fmt.Fprint(buf, f.colorScheme.Prefix(fstr))
-	flen = len(fstr)
+	flen := len(fstr)
 
-	// Func
-	if v, ok := entry.Data[f.FuncFieldName]; ok {
-		fstr = fmt.Sprintf("%v", v)
-	} else {
-		fstr = "-"
-	}
-	fmt.Fprint(buf, " ", f.colorScheme.Func(fstr))
+	fmt.Fprint(buf, " ", f.colorScheme.Prefix(fstr))
 
-	flen += len(fstr) + 1
 	if flen < f.PrefixFieldWidth {
 		fmt.Fprint(buf, strings.Repeat(" ", int(f.PrefixFieldWidth-flen)+1))
 	} else {
 		fmt.Fprint(buf, " ")
+	}
+
+	// Func
+	if v, ok := entry.Data[f.FuncFieldName]; ok {
+		fmt.Fprint(buf, " ", f.colorScheme.Func(fmt.Sprintf("%v", v)))
 	}
 
 	// Message
@@ -262,13 +233,13 @@ func (f *Instance) Format(entry *logrus.Entry) ([]byte, error) {
 	var errpresent bool
 	if v, ok := entry.Data[logrus.ErrorKey]; ok {
 		errpresent = true
-		printField(buf, logrus.ErrorKey, v, f.colorScheme.Prefix, levelColor, true)
+		printField(buf, logrus.ErrorKey, v, f.colorScheme.Func, levelColor, true)
 	}
 
 	keys := make([]string, 0, len(entry.Data))
 	for k := range entry.Data {
 		switch k {
-		case f.PrefixFieldName, f.TagFieldName, f.FuncFieldName, logrus.ErrorKey:
+		case f.PrefixFieldName, f.FuncFieldName, logrus.ErrorKey:
 			continue
 		default:
 			keys = append(keys, k)
@@ -278,7 +249,7 @@ func (f *Instance) Format(entry *logrus.Entry) ([]byte, error) {
 
 	for n, k := range keys {
 		v := entry.Data[k]
-		printField(buf, k, v, f.colorScheme.Prefix, levelColor, n == 0 && !errpresent)
+		printField(buf, k, v, f.colorScheme.Func, levelColor, n == 0 && !errpresent)
 	}
 	if errpresent || len(keys) > 0 {
 		fmt.Fprint(buf, ")")
