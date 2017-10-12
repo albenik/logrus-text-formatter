@@ -197,7 +197,7 @@ func (f *Instance) Format(entry *logrus.Entry) ([]byte, error) {
 		if !f.FullTimestamp {
 			ts = fmt.Sprintf("[%f]", miniTS())
 		} else {
-			ts = entry.Time.Format(f.TimestampFormat)
+			ts = fmt.Sprintf("[%s]", entry.Time.Format(f.TimestampFormat))
 		}
 		fmt.Fprint(buf, levelColor(ts), " ")
 	}
