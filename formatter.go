@@ -202,8 +202,6 @@ func (f *Instance) Format(entry *logrus.Entry) ([]byte, error) {
 		fmt.Fprint(buf, levelColor(ts), " ")
 	}
 
-	fmt.Fprint(buf, levelColor(fmt.Sprintf("%5s", levelText)))
-
 	var fstr string
 
 	// Prefix
@@ -221,6 +219,8 @@ func (f *Instance) Format(entry *logrus.Entry) ([]byte, error) {
 	} else {
 		fmt.Fprint(buf, " ")
 	}
+
+	fmt.Fprint(buf, levelColor(fmt.Sprintf("%5s", levelText)))
 
 	// Func
 	if v, ok := entry.Data[f.FuncFieldName]; ok {
