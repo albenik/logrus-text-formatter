@@ -15,7 +15,7 @@ import (
 	"golang.org/x/crypto/ssh/terminal"
 )
 
-const defaultTimestampFormat = time.RFC3339Nano
+const DefaultTimestampFormat = "2006-01-02T15:04:05.000000000Z07:00"
 
 type ColorScheme struct {
 	Debug  string
@@ -73,8 +73,8 @@ func nocolor(v string) string {
 }
 
 var (
-	baseTimestamp time.Time    = time.Now()
-	defaultColors *ColorScheme = &ColorScheme{
+	baseTimestamp = time.Now()
+	defaultColors = &ColorScheme{
 		Debug:  "black+h",
 		Info:   "green",
 		Warn:   "yellow",
@@ -84,7 +84,7 @@ var (
 		Prefix: "cyan",
 		Func:   "white",
 	}
-	noColors *compiledColorScheme = &compiledColorScheme{
+	noColors = &compiledColorScheme{
 		Debug:  nocolor,
 		Info:   nocolor,
 		Warn:   nocolor,
@@ -94,7 +94,7 @@ var (
 		Prefix: nocolor,
 		Func:   nocolor,
 	}
-	defaultCompiledColorScheme *compiledColorScheme = compileColorScheme(defaultColors)
+	defaultCompiledColorScheme = compileColorScheme(defaultColors)
 )
 
 func miniTS() float64 {
@@ -140,14 +140,14 @@ func (f *Instance) SetColorScheme(colorScheme *ColorScheme) {
 func (f *Instance) Format(entry *logrus.Entry) ([]byte, error) {
 	// init
 	f.Once.Do(func() {
-		if len(f.PrefixFieldName) == 0 {
+		if f.PrefixFieldName == "" {
 			f.PrefixFieldName = "__p"
 		}
-		if len(f.FuncFieldName) == 0 {
+		if f.FuncFieldName == "" {
 			f.FuncFieldName = "__f"
 		}
-		if len(f.TimestampFormat) == 0 {
-			f.TimestampFormat = defaultTimestampFormat
+		if f.TimestampFormat == "" {
+			f.TimestampFormat = DefaultTimestampFormat
 		}
 		if f.colorScheme == nil {
 			if f.UseColors {
